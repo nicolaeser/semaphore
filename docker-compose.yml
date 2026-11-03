@@ -1,0 +1,60 @@
+services:
+    init-permissions:
+        image: busybox
+        user: "0:0"
+        command: >
+            sh -c "mkdir -p /semaphore/data /semaphore/config /semaphore/tmp &&
+                   chown -R 1001:0 /semaphore/data /semaphore/config /semaphore/tmp"
+        volumes:
+            - ./semaphore/data:/semaphore/data
+            - ./semaphore/config:/semaphore/config
+            - ./semaphore/tmp:/semaphore/tmp
+        restart: "no"
+    db:
+        image: postgres
+        environment:
+            POSTGRES_USER: ${POSTGRES_USER}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+            POSTGRES_DB: ${POSTGRES_DB}
+        volumes:
+            - ./semaphore/postgres:/var/lib/postgresql
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+            start_period: 10s
+        restart: unless-stopped
+    semaphore:
+        ports:
+            - "${SEMAPHORE_PORT:-3000}:3000"
+        depends_on:
+            init-permissions:
+                condition: service_completed_successfully
+            db:
+                condition: service_healthy
+        image: semaphoreui/semaphore:${SEMAPHORE_VERSION:-v2.19.12}
+        environment:
+            SEMAPHORE_DB_DIALECT: ${SEMAPHORE_DB_DIALECT}
+            SEMAPHORE_DB_HOST: ${SEMAPHORE_DB_HOST}
+            SEMAPHORE_DB_NAME: ${POSTGRES_DB}
+            SEMAPHORE_DB_USER: ${POSTGRES_USER}
+            SEMAPHORE_DB_PASS: ${POSTGRES_PASSWORD}
+            SEMAPHORE_ADMIN: ${SEMAPHORE_ADMIN}
+            SEMAPHORE_ADMIN_PASSWORD: ${SEMAPHORE_ADMIN_PASSWORD:?SEMAPHORE_ADMIN_PASSWORD is required}
+            SEMAPHORE_ADMIN_NAME: ${SEMAPHORE_ADMIN_NAME}
+            SEMAPHORE_ADMIN_EMAIL: ${SEMAPHORE_ADMIN_EMAIL}
+            SEMAPHORE_USE_REMOTE_RUNNER: "${SEMAPHORE_USE_REMOTE_RUNNER}"
+            SEMAPHORE_MICROSOFT_TEAMS_ALERT: "${SEMAPHORE_MICROSOFT_TEAMS_ALERT}"
+            SEMAPHORE_MICROSOFT_TEAMS_URL: ${SEMAPHORE_MICROSOFT_TEAMS_URL}
+        volumes:
+            - ./semaphore/data:/var/lib/semaphore
+            - ./semaphore/config:/etc/semaphore
+            - ./semaphore/tmp:/tmp/semaphore
+        healthcheck:
+            test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/ping || exit 1"]
+            interval: 30s
+            timeout: 5s
+            retries: 3
+            start_period: 30s
+        restart: unless-stopped
